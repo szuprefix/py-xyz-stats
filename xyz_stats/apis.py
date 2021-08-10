@@ -39,6 +39,17 @@ class ReportViewSet(viewsets.ModelViewSet):
         ds = report.daily_query(begin_date=qps.get('begin_date'), end_date=qps.get('end_date'))
         return response.Response(dict(data=ds, fields=report.get_table_fields()))
 
+    @decorators.action(['POST'], detail=True)
+    def run(self, request, pk):
+        report = self.get_object()
+        from xyz_util.dateutils import date_range
+        qd = request.data
+        rs = []
+        for d in date_range(qd.get('begin_date'), qd.get('end_date')):
+            report.daily_store(d)
+            rs.append((d.isoformat(), 'ok'))
+        return response.Response(dict(results=rs))
+
 
 @register()
 class ReportMeasureViewSet(viewsets.ModelViewSet):
