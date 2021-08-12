@@ -98,7 +98,7 @@ class Report(models.Model):
             qd.setdefault('the_date', {})['$gte'] = begin_date
         if end_date:
             qd.setdefault('the_date', {})['$lte'] = end_date
-        return list(rs.collection.find(qd, fs).sort([('the_date',-1)]))
+        return rs.collection.find(qd, fs).sort([('the_date',-1)])
 
     def get_table_fields(self):
         return [dict(name='the_date', label='日期')]\

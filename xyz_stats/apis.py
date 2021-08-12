@@ -1,6 +1,8 @@
 # -*- coding:utf-8 -*-
 from __future__ import division, unicode_literals
 
+from xyz_util.mongoutils import MongoPageNumberPagination
+
 from . import models, serializers
 from rest_framework import viewsets, decorators, response
 from xyz_restful.decorators import register
@@ -31,13 +33,17 @@ class ReportViewSet(viewsets.ModelViewSet):
         'is_active': ['exact'],
         'create_time': ['exact'],
     }
+    pagination_class = MongoPageNumberPagination
+
 
     @decorators.action(['GET'], detail=True)
     def daily(self, request, pk):
         report = self.get_object()
         qps = request.query_params
-        ds = report.daily_query(begin_date=qps.get('begin_date'), end_date=qps.get('end_date'))
-        return response.Response(dict(data=ds, fields=report.get_table_fields()))
+        rs = report.daily_query(begin_date=qps.get('begin_date'), end_date=qps.get('end_date'))
+        ds = self.paginate_queryset(rs)
+        return self.get_paginated_response(list(ds))
+        # return response.Response(dict(results=ds, fields=report.get_table_fields()))
 
     @decorators.action(['POST'], detail=True)
     def run(self, request, pk):
@@ -61,3 +67,12 @@ class ReportMeasureViewSet(viewsets.ModelViewSet):
         'report': ['exact'],
         'measure': ['exact']
     }
+
+    def get_serializer_class(self):
+        if self.action == 'full':
+            return serializers.ReportMeasureFullSerializer
+        return super(ReportMeasureViewSet, self).get_serializer_class()
+
+    @decorators.action(['GET'], detail=False)
+    def full(self, request, *args, **kwargs):
+        return self.list(request, *args, **kwargs)
