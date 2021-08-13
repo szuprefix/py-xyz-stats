@@ -76,3 +76,9 @@ class ReportMeasureViewSet(viewsets.ModelViewSet):
     @decorators.action(['GET'], detail=False)
     def full(self, request, *args, **kwargs):
         return self.list(request, *args, **kwargs)
+
+    @decorators.action(['POST'], detail=True)
+    def history_run(self, request, pk, *args, **kwargs):
+        rm = self.get_object()
+        rs = rm.history_run()
+        return response.Response(dict(results=rs))

@@ -109,6 +109,7 @@ class ReportMeasure(models.Model):
     class Meta:
         verbose_name_plural = verbose_name = "报表字段"
         unique_together = ('report', 'measure')
+        ordering = ('report', 'order_num')
 
     report = models.ForeignKey(Report, verbose_name=Report._meta.verbose_name, related_name='measure_relations',
                                on_delete=models.PROTECT)
@@ -124,3 +125,16 @@ class ReportMeasure(models.Model):
         if not self.name:
             self.name = self.measure.name
         super(ReportMeasure, self).save(**kwargs)
+
+    def history_run(self):
+        from .stores.stats import Report as ReportStore
+        rs = ReportStore()
+        rid = self.report_id
+        rs = list(rs.collection.find(dict(id=rid), dict(_id=0, the_date=1)))
+        for a in rs:
+            the_date = a['the_date']
+            v = self.measure.stat(dict(the_date=the_date))
+            d = {self.measure.code: v}
+            rs.daily(rid, the_date, d)
+            a['value'] = v
+        return rs
