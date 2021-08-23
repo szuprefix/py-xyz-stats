@@ -5,6 +5,8 @@ from django.db import models
 from django.utils.functional import cached_property
 from xyz_util.datautils import str2dict
 from django.contrib.contenttypes.models import ContentType
+
+
 # Create your models here.
 
 class Measure(models.Model):
@@ -43,7 +45,9 @@ class Measure(models.Model):
     def stat(self, base_queries='', context={}):
         from xyz_util.statutils import QuerySetStat, smart_filter_queryset
         qset = self.content_type.model_class()._base_manager.all()
-        qs = '%s&%s' % (base_queries, self.query_str)
+        qs = self.query_str
+        if base_queries:
+            qs = base_queries + '&' + qs
         if 'the_date' in context:
             qs += '&%s__date=${the_date}' % self.time_field
         for k, v in context.items():
@@ -80,14 +84,14 @@ class Report(models.Model):
             d[ct] = v
         return d
 
+    def get_base_queries(self, measure):
+        return self.contenttype_query_map.get(measure.content_type)
 
     def stat(self, context={}):
         d = {}
-        cqm = self.contenttype_query_map
         for rm in self.measure_relations.all():
             m = rm.measure
-            bq = cqm.get(rm.measure.content_type, '')
-            d[m.code] = m.stat(base_queries=bq, context=context)
+            d[m.code] = m.stat(base_queries=self.get_base_queries(m), context=context)
         return d
 
     def daily_store(self, the_date=None):
@@ -113,11 +117,12 @@ class Report(models.Model):
             qd.setdefault('the_date', {})['$gte'] = begin_date
         if end_date:
             qd.setdefault('the_date', {})['$lte'] = end_date
-        return rs.collection.find(qd, fs).sort([('the_date',-1)])
+        return rs.collection.find(qd, fs).sort([('the_date', -1)])
 
     def get_table_fields(self):
-        return [dict(name='the_date', label='日期')]\
-               + [dict(name=rm.measure.code, label=rm.name, type='number') for rm in self.measure_relations.all().order_by('order_num')]
+        return [dict(name='the_date', label='日期')] \
+               + [dict(name=rm.measure.code, label=rm.name, type='number') for rm in
+                  self.measure_relations.all().order_by('order_num')]
 
 
 class ReportMeasure(models.Model):
@@ -148,7 +153,8 @@ class ReportMeasure(models.Model):
         hs = list(rs.collection.find(dict(id=rid), dict(_id=0, the_date=1)))
         for a in hs:
             the_date = a['the_date']
-            v = self.measure.stat(dict(the_date=the_date))
+            v = self.measure.stat(base_queries=self.report.get_base_queries(self.measure),
+                                  context=dict(the_date=the_date))
             d = {self.measure.code: v}
             rs.daily(rid, the_date, d)
             a['value'] = v
