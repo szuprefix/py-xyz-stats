@@ -2,8 +2,9 @@
 from __future__ import unicode_literals
 
 from django.db import models
-
-
+from django.utils.functional import cached_property
+from xyz_util.datautils import str2dict
+from django.contrib.contenttypes.models import ContentType
 # Create your models here.
 
 class Measure(models.Model):
@@ -11,7 +12,7 @@ class Measure(models.Model):
         verbose_name_plural = verbose_name = "度量"
         unique_together = ('content_type', 'code')
 
-    content_type = models.ForeignKey('contenttypes.ContentType', verbose_name='归类', related_name='stats_measures',
+    content_type = models.ForeignKey(ContentType, verbose_name='归类', related_name='stats_measures',
                                      on_delete=models.PROTECT)
     code = models.CharField('编码', max_length=64)
     name = models.CharField('名称', max_length=64)
@@ -39,10 +40,10 @@ class Measure(models.Model):
                 self.time_field = fs[0].name
         super(Measure, self).save(**kwargs)
 
-    def stat(self, context={}):
+    def stat(self, base_queries='', context={}):
         from xyz_util.statutils import QuerySetStat, smart_filter_queryset
         qset = self.content_type.model_class()._base_manager.all()
-        qs = self.query_str
+        qs = '%s&%s' % (base_queries, self.query_str)
         if 'the_date' in context:
             qs += '&%s__date=${the_date}' % self.time_field
         for k, v in context.items():
@@ -62,17 +63,31 @@ class Report(models.Model):
     description = models.TextField('描述', blank=True, default='')
     measures = models.ManyToManyField(Measure, verbose_name=Measure._meta.verbose_name, blank=True, null=True,
                                       through='ReportMeasure', related_name='reports')
+    base_queries = models.TextField('基础查询条件', blank=True, default='')
     create_time = models.DateTimeField('创建时间', auto_now_add=True)
     update_time = models.DateTimeField('创建时间', auto_now=True)
 
     def __str__(self):
         return self.name
 
+    @cached_property
+    def contenttype_query_map(self):
+        d = {}
+        for k, v in str2dict(self.base_queries).items():
+            if not k:
+                continue
+            ct = ContentType.objects.get_by_natural_key(*k.split('.'))
+            d[ct] = v
+        return d
+
+
     def stat(self, context={}):
         d = {}
+        cqm = self.contenttype_query_map
         for rm in self.measure_relations.all():
             m = rm.measure
-            d[m.code] = m.stat(context)
+            bq = cqm.get(rm.measure.content_type, '')
+            d[m.code] = m.stat(base_queries=bq, context=context)
         return d
 
     def daily_store(self, the_date=None):
@@ -130,11 +145,11 @@ class ReportMeasure(models.Model):
         from .stores.stats import Report as ReportStore
         rs = ReportStore()
         rid = self.report_id
-        rs = list(rs.collection.find(dict(id=rid), dict(_id=0, the_date=1)))
-        for a in rs:
+        hs = list(rs.collection.find(dict(id=rid), dict(_id=0, the_date=1)))
+        for a in hs:
             the_date = a['the_date']
             v = self.measure.stat(dict(the_date=the_date))
             d = {self.measure.code: v}
             rs.daily(rid, the_date, d)
             a['value'] = v
-        return rs
+        return hs
